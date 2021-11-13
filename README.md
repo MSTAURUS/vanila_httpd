@@ -1,8 +1,22 @@
+Vanula http server for GET and HEAD request
+==============
+
+settings for starting:
+~~~
+--host  HOST          (defaut: localhost)
+--port  PORT          (defaut: 8080)
+-r      DOCUMENT_ROOT (defaut: ".")
+-w      WORKERS       (defaut: 6)
+-c      MAX CONNECT   (defaut: 100)
+--log   LOG           (defaut: httpd.log)
+~~~
+
 Result of load testing 
 ======================
 
 ab -n 50000 -c 100 -r http://localhost:8080/httptest/wikipedia_russia.html
 
+~~~
 Benchmarking localhost (be patient)
 Completed 5000 requests
 Completed 10000 requests
@@ -52,7 +66,7 @@ Percentage of the requests served within a certain time (ms)
   98%    170
   99%    197
  100%    288 (longest request)
-
+~~~
 
 Web server test suite
 =====================
