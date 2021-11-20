@@ -29,18 +29,7 @@ DOCUMENT_ROOT = "."
 WORKERS = 6
 LOG = "httpd.log"
 MAX_CONNECT = 100
-
-CONTENT_TYPES = {
-    "html": "text/html",
-    "css": "text/css",
-    "js": "application/javascript",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "png": "image/png",
-    "gif": "image/gif",
-    "swf": "application/x-shockwave-flash",
-    "txt": "text/html"
-}
+MAX_BUFFER = 65536  # 64КБ
 
 
 class HTTPRequest:
@@ -128,15 +117,17 @@ class HTTPResponse:
         self.method = request.method
         self.body = None
         self.type = None
+        self.content_len = 0
 
     def set_body(self, file_path):
         try:
             file = open(file_path, "rb")
             self.body = file.read()
             file.close()
-            file_type = Path(file_path).suffix[1:]
+            mimetypes.init()
+            file_type = Path(file_path).suffix
             try:
-                self.type = CONTENT_TYPES[file_type]
+                self.type = mimetypes.types_map[file_type]
             except:
                 # RFC 2046 states in section 4.5.1:
                 self.type = "application/octet-stream"
@@ -152,7 +143,7 @@ class HTTPResponse:
         response += "Server: my_httpd\r\n"
         response += "Allow: GET, HEAD\r\n"
         response += "Content-Length: {}\r\n".format(
-            len(self.body) if self.body is not None and self.method in ["GET", "HEAD"] else 0
+            self.content_len if self.method in ["GET", "HEAD"] else 0
         )
         if self.type:
             response += "Content-Type: {}\r\n".format(self.type)
@@ -165,6 +156,13 @@ class HTTPResponse:
 
         return response
 
+    def set_content_len(self, file_path):
+        try:
+            file_path = Path(file_path).resolve()
+            self.content_len = Path(file_path).stat().st_size
+        except:
+            self.content_len = 0
+
 
 class HTTPServer:
     def __init__(
@@ -174,7 +172,7 @@ class HTTPServer:
         self.port = int(port)
         self.document_root = document_root
         self.workers = int(workers)
-        self.running_workers = []
+        self.running_workers = None
         self.max_connections = max_connections
         self.batch_size = 4096
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -197,7 +195,10 @@ class HTTPServer:
         logging.info("Request from {}:{}".format(client_address[0], client_address[1]))
 
         response = HTTPResponse(request)
-        response.set_body(request.uri_path)
+        response.set_content_len(Path(request.root, request.uri_path))
+
+        if response.method == "GET":
+            response.set_body(request.uri_path)
 
         response_data = response.create_response()
         try:
@@ -215,7 +216,10 @@ class HTTPServer:
                 logging.error("Socket connection wrong")
                 break
             data += batch.decode("utf-8")
-            if "\r\n\r\n" in data:
+            if "\r\n\r\n" or "\n\n" in data:
+                break
+
+            if len(data) > MAX_BUFFER:
                 break
         return data
 
@@ -225,25 +229,24 @@ class HTTPServer:
             logging.info(
                 "Connection with: {}:{}".format(client_address[0], client_address[1])
             )
-            client_handler = threading.Thread(
-                target=self.handle_request, args=(client_socket, client_address)
-            )
-            client_handler.start()
 
-    def start_workers(self):
-        self.running_workers = []
-        for i in range(self.workers):
-            worker = mp.Process(target=self.listen, name="WORKER_{}".format(i + 1))
-            self.running_workers.append(worker)
-            worker.start()
-            logging.info("Worker {} is created".format(worker.name))
-        for w in self.running_workers:
-            w.join()
+            with ThreadPoolExecutor(self.workers) as executor:
+                executor.submit(
+                    self.handle_request,
+                    client_socket=client_socket,
+                    client_address=client_address,
+                )
 
-    def shutdown_workers(self):
-        for w in self.running_workers:
-            w.terminate()
-            logging.info("Worker {} shutdown".format(w.name))
+    def start_process(self):
+        worker = mp.Process(target=self.listen, name="Process_httpd")
+        self.running_workers = worker
+        worker.start()
+        logging.info("Process is created")
+        worker.join()
+
+    def shutdown_process(self):
+        self.running_workers.terminate()
+        logging.info("Process shutdown")
 
 
 def main():
@@ -270,18 +273,17 @@ def main():
         )
         server.start()
         logging.info("Starting server at %s:%s" % (args.host, str(args.port)))
-        print("Starting server at %s:%s" % (args.host, str(args.port)))
     except Exception as e:
         logging.error("Error on start server. Error: {}".format(e))
         print("Error on start server. Error: {}".format(e))
         sys.exit()
 
     try:
-        server.start_workers()
+        server.start_process()
     except KeyboardInterrupt:
-        server.shutdown_workers()
+        server.shutdown_process()
     except Exception as e:
-        server.shutdown_workers()
+        server.shutdown_process()
         logging.error("Error on {}".format(e))
     finally:
         server.stop()
