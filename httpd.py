@@ -149,10 +149,10 @@ class HTTPResponse:
             response += "Content-Type: {}\r\n".format(self.type)
         response += "\r\n"
 
-        if self.method and self.method == "GET":
-            response = response.encode() + self.body
-        else:
-            response = response.encode()
+        response = response.encode()
+
+        if self.method == "GET":
+            response += self.body
 
         return response
 
@@ -237,17 +237,6 @@ class HTTPServer:
                     client_address=client_address,
                 )
 
-    def start_process(self):
-        worker = mp.Process(target=self.listen, name="Process_httpd")
-        self.running_workers = worker
-        worker.start()
-        logging.info("Process is created")
-        worker.join()
-
-    def shutdown_process(self):
-        self.running_workers.terminate()
-        logging.info("Process shutdown")
-
 
 def main():
     args = argparse.ArgumentParser()
@@ -275,18 +264,14 @@ def main():
         logging.info("Starting server at %s:%s" % (args.host, str(args.port)))
     except Exception as e:
         logging.error("Error on start server. Error: {}".format(e))
-        print("Error on start server. Error: {}".format(e))
         sys.exit()
 
     try:
-        server.start_process()
+        server.listen()
     except KeyboardInterrupt:
-        server.shutdown_process()
-    except Exception as e:
-        server.shutdown_process()
-        logging.error("Error on {}".format(e))
-    finally:
         server.stop()
+    except Exception as e:
+        logging.error("Error on {}".format(e))
 
 
 if __name__ == "__main__":
