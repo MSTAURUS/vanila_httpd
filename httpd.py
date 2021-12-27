@@ -115,7 +115,7 @@ class HTTPResponse:
     def __init__(self, request):
         self.code = request.response_code
         self.method = request.method
-        self.body = None
+        self.body = b""
         self.type = None
         self.content_len = 0
 
@@ -133,7 +133,7 @@ class HTTPResponse:
                 self.type = "application/octet-stream"
         except:
             logging.info("Error while reading file: {}".format(file_path))
-            self.body = "".encode("utf-8")
+            self.body = b""
 
     def create_response(self):
         response = "HTTP/1.1 {} {}\r\n".format(self.code, self.reply_values[self.code])
@@ -149,10 +149,7 @@ class HTTPResponse:
             response += "Content-Type: {}\r\n".format(self.type)
         response += "\r\n"
 
-        response = response.encode()
-
-        if self.method == "GET":
-            response += self.body
+        response = response.encode() + self.body
 
         return response
 
